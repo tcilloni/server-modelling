@@ -1,0 +1,77 @@
+ctmc
+
+// failure rates
+const double lambda_lb = 1/(60*60*24*365);	// 1Y: Load Balancer
+const double lambda_ms = 1/(60*60*24*30);	// 1M: Main Server
+const double lambda_s  = 1/(60*60*24*7);	// 1W: Server
+
+// operativeness conditions
+const int MIN_MSERVERS;
+const int MIN_SERVERS;
+
+
+
+// Load Balance
+module load_balance
+
+	lb : [0..1] init 1;			// status: 1=ok, 0=failed
+	sel : [1..2] init 1;			// MS selected: 1 or 2
+
+	[] lb>0 -> lambda_lb : (lb'=0);		//failure of the lb
+
+	// selection of the destination MS based on their operativenees
+	[] (lb>0)&(ms1=ms2)   		-> 0.5 : (sel'=1) + 0.5 : (sel'=2);	// both are working
+	[] (lb>0)&((ms1=1)&(ms2=0)) 	-> (sel'=1);				// MS1 only is working
+	[] (lb>0)&((ms1=0)&(ms2=1)) 	-> (sel'=2);				// MS2 only is working
+
+endmodule
+
+
+
+// Main Server
+module main_servers
+
+	//server variables
+	ms1: [0..1] init 1;
+	ms2: [0..1] init 1;
+	[] (sel=1)&(ms1=1) -> lambda_ms: (ms1'=0);	// failure of ms1
+	[] (sel=2)&(ms2=1) -> lambda_ms: (ms2'=0);	// failure of ms2
+
+endmodule
+
+
+
+// Servers
+module servers
+
+	s1 : [0..3] init 3;			// n of working servers from MS1
+	s2 : [0..3] init 3;			// n of working servers from MS2
+
+
+	// failures of a server
+	[] (sel=1)&(s1>0) -> lambda_s : (s1'=s1-1);
+	[] (sel=2)&(s2>0) -> lambda_s : (s2'=s2-1);
+
+endmodule
+
+
+
+
+
+
+
+
+// failure lables
+label "f_load" = lb=0;
+label "f_ms" = (ms1+ms2)<MIN_MSERVERS;
+// if all servers from the same MS have failed and they are required
+// to process some data, s_fail becomes true and down (below) follows
+label "f_s" = s1<MIN_SERVERS | s2<MIN_SERVERS;
+label "down" = (lb=0) | ((ms1+ms2)<MIN_MSERVERS) | ((s1<MIN_SERVERS)|(s2<MIN_SERVERS));
+
+
+// probabilities
+//P=? [true U<=T*3600 "down"]
+
+
+
