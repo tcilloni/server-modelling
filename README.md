@@ -75,6 +75,6 @@ In conclusion we saw the huge difference that a third state and rebooting capaci
 According to a research done by Microsoft, hardware failure in consumer PC is making it exponentially more likely for the system to crash again (3), which is also not taken into account in this analysis. It would be interesting to, when accounting for failure of individual component, increase the future probability of failure of this very component.
 
 ### References
-[1] Statista, “Frequency of server failure based on the age of the server (per year)”, February 2014 online: https://www.statista.com/statistics/430769/annual-failure-rates-of-servers/
-[2] A. Yavari, M. Musavi, H. Momeni and M. Hamzenhia, “Measuring the failure Rate in Service Oriented Architechture Using Fuzzy Logic,” Journal of Mathematics and Computer Science, vol. 7, pp. 160-170, July 2013.
+[1] Statista, “Frequency of server failure based on the age of the server (per year)”, February 2014 online: https://www.statista.com/statistics/430769/annual-failure-rates-of-servers/  
+[2] A. Yavari, M. Musavi, H. Momeni and M. Hamzenhia, “Measuring the failure Rate in Service Oriented Architechture Using Fuzzy Logic,” Journal of Mathematics and Computer Science, vol. 7, pp. 160-170, July 2013.  
 [3] E, Nightingale, J Douceur, and V. Orgovan, “Cycles, cells and Platters: An Empirical Analysis of Hardware Failures on a Million Consumer PC”, Proceedings of EuroSys 2011, April 1st 2011
