@@ -1,0 +1,169 @@
+ctmc
+
+// failure rates
+const double lambda_lb = 1/(60*60*24*365);	// 1Y: Load Balancer
+const double lambda_ms = 1/(60*60*24*30);	// 1M: Main Server
+const double lambda_s = 1/(60*60*24*3);		// 3D: Server
+const double p_recover = 1/20;			// 5% chance of a successful reboot
+
+
+// operativeness conditions
+const int MIN_MSERVERS;
+const int MIN_SERVERS;
+
+// maximum number of consecutive times components can be rebooted before considering them down permanently
+const int MAX_Sreboots;
+const int MAX_MSreboots;
+const int MAX_LBreboots;
+
+
+// global main server variables (used in two modules)
+global ms1 : [0..2] init 2;				// 2=ok, 1=transient fault, 0=down
+global ms2 : [0..2] init 2;				// 2=ok, 1=transient fault, 0=down
+global MS_reboots: [0..MAX_MSreboots+1] init 0;		// number of consecutive times Main Servers are rebooted
+
+
+
+// Load Balancer
+module load_balancer
+
+	lb: [0..2] init 2;			// status: 2=ok, 1=transient fault, 0=failed
+	sel: [1..2] init 1;			// MS selected: 1 or 2
+	LB_reboots: [0..MAX_LBreboots+1] init 0;	// number of consecutive times the Load Balancer is rebooted
+
+
+	[] (lb=2) -> lambda_lb : (lb'= 1);		// temporary failure of the lb
+
+	// p_recover chances of LB going back up (reboot counter resets), or increase the reboot counter
+	[] (lb=1) -> p_recover: (lb'= 2)&(LB_reboots'= 0) + (1-p_recover): (LB_reboots'= LB_reboots+1);
+
+	// if the reboot counter exceeds the allowed MAX_LBreboots, shut down the Load Balancer
+	[] (lb=1)&(LB_reboots>MAX_LBreboots) -> (lb'= 0);
+
+
+	// selection of the destination Main Server based on their operativenees
+	[] (lb=2)&(ms1=ms2) -> 0.5 : (sel'= 1) + 0.5 : (sel'= 2);	// both are working or down
+	[] (lb=2)&(ms1!=ms2=false) -> (sel'= 1);			// MS1 only is working
+	[] (lb=2)&(ms1!=ms2=true)  -> (sel'= 2);			// MS2 only is working
+
+endmodule
+
+
+
+
+// Main Server
+module main_servers
+
+	[] (sel=1)&(ms1=2) -> lambda_ms : (ms1'= 1);	// temporary failure of ms1
+	[] (sel=2)&(ms2=2) -> lambda_ms : (ms2'= 1);	// temporary failure of ms2
+
+	// p_recover chances of MSs going back up (reboot counter resets), or increase the reboot counter
+	[] (ms1=1) -> p_recover: (ms1'= 2)&(MS_reboots'= 0) + (1-p_recover): (MS_reboots'= MS_reboots+1);
+	[] (ms2=1) -> p_recover: (ms2'= 2)&(MS_reboots'= 0) + (1-p_recover): (MS_reboots'= MS_reboots+1);
+
+	// if the reboot counter exceeds the allowed MAX_MSreboots, permantly shut down the temporarly faulty Main Server
+	[] (ms1=1)&(MS_reboots>MAX_MSreboots) -> (ms1'= 0)&(MS_reboots'= 0);
+	[] (ms2=1)&(MS_reboots>MAX_MSreboots) -> (ms2'= 0)&(MS_reboots'= 0);
+	
+	// Main Servers go down if all servers attached to them are down and they are requested
+	[] (sel=1)&(up_s1<MIN_SERVERS) -> (ms1'= 0);
+	[] (sel=2)&(up_s2<MIN_SERVERS) -> (ms2'= 0);
+
+endmodule
+
+
+
+
+// Servers
+module servers
+
+	// 0= failed,	1= transient fault, 	2= ok
+	MS1s1: [0..2] init 2;	// Main Server 1's 1st server
+	MS1s2: [0..2] init 2;	// Main Server 1's 2nd server
+	MS1s3: [0..2] init 2;	// Main Server 1's 3rd server
+	S1_reboots: [0..MAX_Sreboots+1] init 0;	// number of consecutive times servers of MS1 have been rebooted
+
+	MS2s1: [0..2] init 2;	// Main Server 2's 1st server
+	MS2s2: [0..2] init 2;	// Main Server 2's 2nd server
+	MS2s3: [0..2] init 2;	// Main Server 2's 3rd server
+	S2_reboots: [0..MAX_Sreboots+1] init 0;	// number of consecutive times servers of MS2 have been rebooted
+
+
+	// failures of the servers; the probability of a server failing is related to the status of other servers:
+	// if a server is down, it is more likely that other servers will go down too (water leak, humidity, heat...).
+	// this is assuming the servers connected to the same Main Server are stored nearby each other or rely on shared resources
+	[] (sel=1)&(MS1s1=2) -> down_s1*lambda_s: (MS1s1'= 1);
+	[] (sel=1)&(MS1s2=2) -> down_s1*lambda_s: (MS1s2'= 1);
+	[] (sel=1)&(MS1s3=2) -> down_s1*lambda_s: (MS1s3'= 1);
+
+	[] (sel=2)&(MS2s1=2) -> down_s2*lambda_s: (MS2s1'= 1);
+	[] (sel=2)&(MS2s2=2) -> down_s2*lambda_s: (MS2s2'= 1);
+	[] (sel=2)&(MS2s3=2) -> down_s2*lambda_s: (MS2s3'= 1);
+
+
+	// if a server is in transient fault, p_recover chances of it restarting correctly (and counter reset),
+	// otherwise increment the reboot counter. Done for 2x3 servers
+	[] (MS1s1=1) -> p_recover: (MS1s1'= 2)&(S1_reboots'= 0) + (1-p_recover): (S1_reboots'= S1_reboots+1);
+	[] (MS1s2=1) -> p_recover: (MS1s2'= 2)&(S1_reboots'= 0) + (1-p_recover): (S1_reboots'= S1_reboots+1);
+	[] (MS1s3=1) -> p_recover: (MS1s3'= 2)&(S1_reboots'= 0) + (1-p_recover): (S1_reboots'= S1_reboots+1);
+	
+	[] (MS2s1=1) -> p_recover: (MS2s1'= 2)&(S2_reboots'= 0) + (1-p_recover): (S2_reboots'= S2_reboots+1);
+	[] (MS2s2=1) -> p_recover: (MS2s2'= 2)&(S2_reboots'= 0) + (1-p_recover): (S2_reboots'= S2_reboots+1);
+	[] (MS2s3=1) -> p_recover: (MS2s3'= 2)&(S2_reboots'= 0) + (1-p_recover): (S2_reboots'= S2_reboots+1);
+
+
+	[] (MS1s1=1)&(S1_reboots>=MAX_Sreboots) -> (MS1s1'= 0)&(S1_reboots'= 0);
+	[] (MS1s2=1)&(S1_reboots>=MAX_Sreboots) -> (MS1s2'= 0)&(S1_reboots'= 0);
+	[] (MS1s3=1)&(S1_reboots>=MAX_Sreboots) -> (MS1s3'= 0)&(S1_reboots'= 0);
+
+	[] (MS2s1=1)&(S2_reboots>=MAX_Sreboots) -> (MS2s1'= 0)&(S2_reboots'= 0);
+	[] (MS2s2=1)&(S2_reboots>=MAX_Sreboots) -> (MS2s2'= 0)&(S2_reboots'= 0);
+	[] (MS2s3=1)&(S2_reboots>=MAX_Sreboots) -> (MS2s3'= 0)&(S2_reboots'= 0);
+
+endmodule
+
+
+
+// Answer back to Main Servers
+module response
+
+	// this module does not contain any reboots for the main servers: as all other components
+	// in this model, they can be rebooted only once per iteration
+
+	[] (sel=1)&(ms1=2) -> lambda_ms : (ms1'=1);	// temporary failure of ms1
+	[] (sel=2)&(ms2=2) -> lambda_ms : (ms2'=1);	// temporary failure of ms2
+	
+	// Main Servers go down if all servers attached to them are down and they are requested
+	[] (sel=1)&(up_s1<MIN_SERVERS) -> (ms1'= 0);
+	[] (sel=2)&(up_s2<MIN_SERVERS) -> (ms2'= 0);
+
+endmodule
+
+
+
+
+// failure of the load balancer if it is down
+label "f_loadBalancer" = lb=0;
+// failure of main servers if the minimum main servers are less than the minimum required
+label "f_mainServer" = ms<MIN_MSERVERS;
+// failure of servers if all servers attached to a MS are down when the MS is sent a package
+label "f_servers" = ((sel=1)&(up_s1<MIN_SERVERS)) | ((sel=2)&(up_s2<MIN_SERVERS));
+
+// total failure
+label "down" = 	(lb=0) |
+		(ms<MIN_MSERVERS) |
+		( ((sel=1)&(up_s1<MIN_SERVERS)) | ((sel=2)&(up_s2<MIN_SERVERS)) );
+
+
+
+
+// floor(MS1s1/2) gives the integer of MS2s1/2 without the decimal part: it is 1 if MS1s1=2, 0 otherwise
+formula up_s1 = floor(MS1s1/2) + floor(MS1s2/2) + floor(MS1s3/2);		// working servers from MS1
+formula up_s2 = floor(MS2s1/2) + floor(MS2s2/2) + floor(MS2s3/2);		// working servers from MS2
+
+formula down_s1 = 3-up_s1 +1;		// non-working servers from MS1 (+1 or transient fault probability in the server module would be 0)
+formula down_s2 = 3-up_s2 +1;		// non-working servers from MS2 (+1 or transient fault probability in the server module would be 0)
+
+// functioning main servers is the halved sum of ms1 and ms2, which are each 2 or 1/0 if working or not
+formula ms = floor ((ms1/2) + (ms2/2));
+
